@@ -1,0 +1,60 @@
+---
+title: 'FNO vs GNN: neural surrogates for airfoil CFD'
+summary: 'Predicting pressure and velocity fields around an airfoil from geometry and flow conditions, skipping the iterative CFD solve.'
+result: 'A 5k-parameter mesh GNN beats a 4.3M-parameter Fourier Neural Operator on every channel, cutting surface velocity error from 115% to 19%.'
+date: 2026-10-01
+tags: ['PyTorch', 'Graph neural networks', 'Neural operators', 'CFD']
+featured: true
+order: 1
+code: 'https://github.com/TingluZ/airfrans-fno-gnn'
+---
+
+import SurfaceErrorChart from '../../components/SurfaceErrorChart.astro';
+
+<div class="callout">
+**Coming next:** an interactive explorer to compare CFD, FNO and GNN predictions on any of the 200 test airfoils, and a live GNN demo.
+</div>
+
+## The problem
+
+During my Master's I used Ansys Fluent to simulate building environments, aircraft cabins and human respiration. Some models had millions of cells and took days to solve, and changing a single boundary condition meant solving again. Simulation is grounded in real physics, but once enough simulations exist, a data-driven surrogate can return a new prediction in a fraction of the time.
+
+This project predicts the velocity, pressure and turbulent viscosity fields around an airfoil directly from its geometry and the inflow conditions, using the [AirfRANS](https://github.com/Extrality/AirfRANS) dataset (800 training and 200 test simulations of 2D incompressible RANS flow).
+
+## Two approaches
+
+- **Fourier Neural Operator (FNO):** interpolates the mesh onto a regular grid, learns in truncated Fourier space, then interpolates back to the mesh.
+- **Graph neural network (GNN):** an encode-process-decode network in the style of MeshGraphNet, working directly on the point cloud through a k-nearest-neighbour graph. No grid needed.
+
+## Results
+
+<SurfaceErrorChart />
+
+| Model | Parameters | Training (50 epochs) | Inference per simulation |
+|---|--:|--:|--:|
+| FNO | 4.34M | ~35 min (Apple MPS) | ~1.9 s |
+| GNN | 5k | ~8.2 h (CPU) | ~0.7 s |
+
+The GNN wins every channel, both over the whole field and at the surface. The gap is widest at the surface, where the no-slip boundary layer lives.
+
+## Why the FNO hits a floor
+
+The FNO has to move data from mesh points to a grid and back. I measured the error that round trip alone causes, before training any model, by passing the true fields through it:
+
+| Grid | vx, all points | vx, surface |
+|---|--:|--:|
+| 128×64 | 49.3% | 117.9% |
+| 256×128 | 32.3% | 100.7% |
+| 512×256 | 22.1% | 81.0% |
+
+Higher resolution helps the far field but barely moves the surface error. CFD meshes are densest near the wall, exactly where a regular grid throws the most information away. A density-weighted loss helped three of four channels but could not close the gap.
+
+## What didn't work
+
+I tried a no-slip penalty on the GNN, penalising predicted velocity at wall nodes. It made wall velocity more than twice as bad (17.4 to 42.4 m/s mean), and larger weights made held-out accuracy worse. All four outputs share the same message-passing layers, so a loss on two channels at about 0.5% of nodes interferes with the shared representation instead of fixing the wall.
+
+## Limitations and next steps
+
+- Single train/validation/test split, so no error bars.
+- The GNN uses a k-NN graph rather than the true mesh connectivity, and has no edge features.
+- Next: rebuild the graph from the mesh triangulation with edge features, try per-channel loss weighting, and test a geometry-aware FNO.

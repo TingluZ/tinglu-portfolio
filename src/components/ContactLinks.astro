@@ -1,0 +1,17 @@
+---
+import { SITE } from '../site';
+
+const links = [
+	{ label: 'GitHub', href: SITE.links.github },
+	{ label: 'LinkedIn', href: SITE.links.linkedin },
+	{ label: 'Email', href: SITE.links.email && `mailto:${SITE.links.email}` },
+].filter((l) => l.href);
+---
+
+<ul class="links">
+	{links.map((l) => <li><a href={l.href} rel="me noopener">{l.label}</a></li>)}
+</ul>
+
+<style>
+	.links { display: flex; gap: 1rem; list-style: none; padding: 0; margin: 0; font-size: 0.95rem; }
+</style>

@@ -1,0 +1,40 @@
+---
+import type { CollectionEntry } from 'astro:content';
+import { url } from '../site';
+
+interface Props {
+	project: CollectionEntry<'projects'>;
+}
+const { project } = Astro.props;
+const { title, summary, result, tags, demo, code } = project.data;
+const href = url(`/projects/${project.id}`);
+---
+
+<article class="card">
+	<h3><a href={href}>{title}</a></h3>
+	<p class="summary">{summary}</p>
+	<p class="result">{result}</p>
+	<ul class="tags">
+		{demo && <li class="tag live">Live demo</li>}
+		{code && <li class="tag">Code</li>}
+		{tags.map((t) => <li class="tag">{t}</li>)}
+	</ul>
+</article>
+
+<style>
+	.card {
+		position: relative;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		border-radius: 12px;
+		padding: 1.25rem 1.25rem 1.1rem;
+		transition: border-color 0.15s;
+	}
+	.card:hover { border-color: var(--accent); }
+	h3 { margin: 0 0 0.4rem; }
+	h3 a { color: var(--text); text-decoration: none; }
+	h3 a::after { content: ''; position: absolute; inset: 0; }
+	.summary { margin: 0 0 0.6rem; color: var(--muted); font-size: 0.95rem; }
+	.result { margin: 0 0 0.9rem; font-size: 0.95rem; font-weight: 500; }
+	.live { color: var(--accent); border-color: var(--accent); }
+</style>

@@ -1,0 +1,52 @@
+---
+import Base from '../layouts/Base.astro';
+import ContactLinks from '../components/ContactLinks.astro';
+import { SITE } from '../site';
+---
+
+<Base title="About" description={`About ${SITE.name}: from CFD simulation to machine learning.`}>
+	<article class="container prose">
+		<h1 class="title">About</h1>
+
+		<p>
+			I'm a data and machine learning engineer based in London, with about three years of commercial
+			experience. I'm pursuing a career across ML engineering, data science and scientific machine
+			learning, especially where models meet the physical world.
+		</p>
+
+		<h2>From simulation to machine learning</h2>
+		<p>
+			I started in building environment engineering, running CFD simulations of indoor airflow,
+			aircraft cabins and human respiration. A single model could take days to solve, and changing one
+			boundary condition meant starting again. That frustration is why I moved into machine learning:
+			once you have enough simulation data, a trained surrogate can answer in milliseconds.
+		</p>
+
+		<h2>What I work on</h2>
+		<ul>
+			<li><strong>Physics-aware ML:</strong> neural operators and graph neural networks as surrogates for CFD.</li>
+			<li><strong>Applied NLP and LLM systems:</strong> retrieval-augmented generation over large document collections, LLM quality-control workflows and text classifiers.</li>
+			<li><strong>Data engineering:</strong> ETL and IoT data pipelines that feed models in production.</li>
+		</ul>
+
+		<h2>Experience</h2>
+		<ul>
+			<li><strong>Data Analyst, Climate Policy Initiative</strong> (2023 to present): built a production RAG system over about 6,000 financial reports, an LLM quality-control workflow, a Hugging Face text classifier and ETL pipelines.</li>
+			<li><strong>Intern, Cosysense</strong> (2023): IoT energy data pipelines and ML for HVAC control.</li>
+		</ul>
+
+		<h2>Education</h2>
+		<ul>
+			<li><strong>MSc Environmental Data Science and Machine Learning</strong>, Imperial College London (Distinction)</li>
+			<li><strong>MSc HVAC and Building Environment</strong>, Tianjin University: CFD research, one SCI paper and two patents</li>
+			<li><strong>BEng Building Environment and Energy Engineering</strong>, Dalian University of Technology</li>
+		</ul>
+
+		<h2>Get in touch</h2>
+		<ContactLinks />
+	</article>
+</Base>
+
+<style>
+	.title { margin-top: 3rem; }
+</style>

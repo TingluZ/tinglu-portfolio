@@ -1,0 +1,34 @@
+---
+import type { CollectionEntry } from 'astro:content';
+import { url } from '../site';
+
+interface Props {
+	posts: CollectionEntry<'blog'>[];
+}
+const { posts } = Astro.props;
+const fmt = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+---
+
+{
+	posts.length === 0 ? (
+		<p class="muted">First posts are on the way.</p>
+	) : (
+		<ul class="posts">
+			{posts.map((p) => (
+				<li>
+					<time datetime={p.data.date.toISOString()} class="muted small">{fmt(p.data.date)}</time>
+					<a href={url(`/blog/${p.id}`)}>{p.data.title}</a>
+					<p class="muted small">{p.data.description}</p>
+				</li>
+			))}
+		</ul>
+	)
+}
+
+<style>
+	.posts { list-style: none; padding: 0; margin: 0; }
+	li { padding: 1rem 0; border-bottom: 1px solid var(--border); }
+	li a { display: block; font-weight: 600; color: var(--text); text-decoration: none; font-size: 1.05rem; }
+	li a:hover { color: var(--accent); }
+	p { margin: 0.25rem 0 0; }
+</style>

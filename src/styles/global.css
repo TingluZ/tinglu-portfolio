@@ -1,0 +1,93 @@
+:root {
+	--bg: #fbfbf9;
+	--surface: #ffffff;
+	--text: #1c1c1a;
+	--muted: #5f5f5a;
+	--border: #e4e3de;
+	--accent: #2459c9;
+	--accent-soft: #e8eefb;
+	--max: 46rem;
+	--wide: 68rem;
+	--font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+	color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--bg: #121211;
+		--surface: #1b1b19;
+		--text: #ecebe6;
+		--muted: #a3a29b;
+		--border: #2e2d2a;
+		--accent: #7aa2f7;
+		--accent-soft: #1e2840;
+		color-scheme: dark;
+	}
+}
+:root[data-theme='dark'] {
+	--bg: #121211;
+	--surface: #1b1b19;
+	--text: #ecebe6;
+	--muted: #a3a29b;
+	--border: #2e2d2a;
+	--accent: #7aa2f7;
+	--accent-soft: #1e2840;
+	color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font);
+	font-size: 1.0625rem;
+	line-height: 1.65;
+}
+a { color: var(--accent); text-underline-offset: 0.18em; }
+a:hover { text-decoration-thickness: 2px; }
+img, svg, video { max-width: 100%; height: auto; }
+h1, h2, h3 { line-height: 1.25; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); margin: 0 0 0.5rem; }
+h2 { font-size: 1.4rem; margin-top: 2.5rem; }
+h3 { font-size: 1.1rem; }
+code { font-family: var(--mono); font-size: 0.9em; }
+:not(pre) > code { background: var(--accent-soft); padding: 0.1em 0.35em; border-radius: 4px; }
+pre { padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid var(--border); font-size: 0.875rem; }
+.astro-code, .astro-code span { background-color: var(--shiki-light-bg) !important; color: var(--shiki-light); }
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) .astro-code, :root:not([data-theme='light']) .astro-code span { background-color: var(--shiki-dark-bg) !important; color: var(--shiki-dark) !important; }
+}
+:root[data-theme='dark'] .astro-code, :root[data-theme='dark'] .astro-code span { background-color: var(--shiki-dark-bg) !important; color: var(--shiki-dark) !important; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; display: block; overflow-x: auto; }
+th, td { padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border); text-align: left; }
+th { font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+blockquote { margin: 1.5rem 0; padding-left: 1rem; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 3rem 0; }
+
+.container { max-width: var(--max); margin: 0 auto; padding: 0 1rem; }
+.container.wide { max-width: var(--wide); }
+.muted { color: var(--muted); }
+.small { font-size: 0.9rem; }
+.tags { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; margin: 0; list-style: none; }
+.tag { font-size: 0.78rem; padding: 0.15rem 0.55rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); }
+.button {
+	display: inline-flex; align-items: center; gap: 0.4rem;
+	padding: 0.5rem 0.95rem; border-radius: 8px; border: 1px solid var(--border);
+	color: var(--text); text-decoration: none; font-weight: 500; font-size: 0.95rem; background: var(--surface);
+}
+.button:hover { border-color: var(--accent); color: var(--accent); }
+.button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.button.primary:hover { opacity: 0.9; color: var(--bg); }
+.button[aria-disabled='true'] { opacity: 0.55; pointer-events: none; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 1.25rem 0; }
+.section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-top: 3.5rem; }
+.section-head h2 { margin: 0; }
+.prose { margin-bottom: 4rem; }
+.prose figure { margin: 2rem 0; }
+.prose figcaption { font-size: 0.875rem; color: var(--muted); margin-top: 0.5rem; }
+.callout { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

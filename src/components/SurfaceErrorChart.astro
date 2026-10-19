@@ -1,0 +1,58 @@
+---
+// Relative L2 error on the AirfRANS test set, from the airfrans-fno-gnn README.
+const rows = [
+	{ channel: 'vx', fno: 115.5, gnn: 19.0 },
+	{ channel: 'vy', fno: 66.7, gnn: 19.4 },
+	{ channel: 'pressure', fno: 80.5, gnn: 53.7 },
+	{ channel: 'nu_t', fno: 53.6, gnn: 19.4 },
+];
+const W = 640, rowH = 44, left = 84, right = 56, top = 28;
+const H = top + rows.length * rowH + 28;
+const max = 120;
+const x = (v: number) => left + (v / max) * (W - left - right);
+const ticks = [0, 25, 50, 75, 100];
+---
+
+<figure class="error-chart">
+	<svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Surface error by channel: GNN is far below FNO on every channel">
+		<g class="legend">
+			<rect x={left} y="6" width="12" height="12" rx="2" class="fno" />
+			<text x={left + 18} y="16">FNO</text>
+			<rect x={left + 70} y="6" width="12" height="12" rx="2" class="gnn" />
+			<text x={left + 88} y="16">GNN</text>
+		</g>
+		{ticks.map((t) => (
+			<g>
+				<line x1={x(t)} x2={x(t)} y1={top} y2={H - 24} class="grid" />
+				<text x={x(t)} y={H - 8} text-anchor="middle" class="tick">{t}%</text>
+			</g>
+		))}
+		{rows.map((r, i) => {
+			const y = top + i * rowH + 6;
+			return (
+				<g>
+					<text x={left - 10} y={y + 18} text-anchor="end" class="label">{r.channel}</text>
+					<rect x={left} y={y} width={x(r.fno) - left} height="14" rx="3" class="fno" />
+					<text x={x(r.fno) + 6} y={y + 11} class="value">{r.fno.toFixed(1)}%</text>
+					<rect x={left} y={y + 17} width={x(r.gnn) - left} height="14" rx="3" class="gnn" />
+					<text x={x(r.gnn) + 6} y={y + 28} class="value strong">{r.gnn.toFixed(1)}%</text>
+				</g>
+			);
+		})}
+	</svg>
+	<figcaption>Relative L2 error at the airfoil surface on the 200-case test set (lower is better).</figcaption>
+</figure>
+
+<style>
+	.error-chart { margin: 1.5rem 0; }
+	figcaption { font-size: 0.875rem; color: var(--muted); margin-top: 0.5rem; }
+	svg { width: 100%; font-family: var(--font); }
+	text { fill: var(--muted); font-size: 12px; }
+	.label { fill: var(--text); font-size: 13px; font-family: var(--mono); }
+	.value { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+	.strong { fill: var(--text); font-weight: 600; }
+	.legend text { fill: var(--text); font-size: 12.5px; }
+	.grid { stroke: var(--border); stroke-width: 1; }
+	.fno { fill: var(--muted); opacity: 0.45; }
+	.gnn { fill: var(--accent); }
+</style>

@@ -1,0 +1,20 @@
+---
+import Base from '../../layouts/Base.astro';
+import ProjectCard from '../../components/ProjectCard.astro';
+import { getProjects } from '../../lib';
+
+const projects = await getProjects();
+---
+
+<Base title="Projects" description="Machine learning and data science projects, most with live demos.">
+	<section class="container wide">
+		<h1 class="title">Projects</h1>
+		<p class="muted">Deployed tools and case studies. Each page explains the problem, what worked, and what didn't.</p>
+		<div class="grid">{projects.map((p) => <ProjectCard project={p} />)}</div>
+	</section>
+</Base>
+
+<style>
+	.title { margin-top: 3rem; }
+	.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+</style>

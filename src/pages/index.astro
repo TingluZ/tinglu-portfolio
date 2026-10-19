@@ -1,0 +1,89 @@
+---
+import Base from '../layouts/Base.astro';
+import ProjectCard from '../components/ProjectCard.astro';
+import PostList from '../components/PostList.astro';
+import ContactLinks from '../components/ContactLinks.astro';
+import SurfaceErrorChart from '../components/SurfaceErrorChart.astro';
+import { SITE, url } from '../site';
+import { getPosts, getProjects } from '../lib';
+
+const projects = await getProjects();
+const featured = projects.find((p) => p.data.featured);
+const others = projects.filter((p) => p !== featured).slice(0, 6);
+const posts = (await getPosts()).slice(0, 3);
+---
+
+<Base>
+	<section class="container wide hero">
+		<h1>{SITE.name}</h1>
+		<p class="lede">{SITE.tagline}</p>
+		<p class="muted">
+			MSc in Environmental Data Science and Machine Learning from Imperial College London, with a
+			background in CFD simulation. Pursuing a career across ML engineering, data science and
+			scientific machine learning.
+		</p>
+		<ContactLinks />
+	</section>
+
+	{
+		featured && (
+			<section class="container wide featured">
+				<div class="text">
+					<p class="eyebrow">Featured project</p>
+					<h2>
+						<a href={url(`/projects/${featured.id}`)}>{featured.data.title}</a>
+					</h2>
+					<p>{featured.data.summary}</p>
+					<p class="result">{featured.data.result}</p>
+					<div class="actions">
+						<a class="button primary" href={url(`/projects/${featured.id}`)}>Read the case study</a>
+						{featured.data.code && <a class="button" href={featured.data.code}>Code</a>}
+					</div>
+				</div>
+				<div class="viz">
+					<SurfaceErrorChart />
+				</div>
+			</section>
+		)
+	}
+
+	{
+		others.length > 0 && (
+			<section class="container wide">
+				<div class="section-head">
+					<h2>More projects</h2>
+					<a href={url('/projects')}>All projects</a>
+				</div>
+				<div class="grid">{others.map((p) => <ProjectCard project={p} />)}</div>
+			</section>
+		)
+	}
+
+	<section class="container wide">
+		<div class="section-head">
+			<h2>Writing</h2>
+			<a href={url('/blog')}>All posts</a>
+		</div>
+		<PostList posts={posts} />
+	</section>
+</Base>
+
+<style>
+	.hero { padding: 4.5rem 1rem 1rem; }
+	.lede { font-size: clamp(1.15rem, 2.2vw, 1.4rem); line-height: 1.45; max-width: 40rem; margin: 0.5rem 0 1rem; }
+	.hero .muted { max-width: 40rem; margin: 0 0 1.25rem; }
+	.featured {
+		display: grid; grid-template-columns: 1fr 1.1fr; gap: 2.5rem; align-items: center;
+		margin-top: 3rem; padding-top: 2rem; padding-bottom: 2rem;
+		border: 1px solid var(--border); border-radius: 16px; background: var(--surface);
+	}
+	.featured h2 { margin: 0.25rem 0 0.75rem; }
+	.featured h2 a { color: var(--text); text-decoration: none; }
+	.eyebrow { margin: 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); font-weight: 600; }
+	.result { font-weight: 500; }
+	.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; margin-top: 1.25rem; }
+	@media (max-width: 760px) {
+		.featured { grid-template-columns: 1fr; gap: 1rem; margin-left: 1rem; margin-right: 1rem; }
+		.hero { padding-top: 3rem; }
+	}
+</style>

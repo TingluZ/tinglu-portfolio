@@ -1,0 +1,16 @@
+---
+import { SITE } from '../site';
+import ContactLinks from './ContactLinks.astro';
+---
+
+<footer>
+	<div class="container wide row">
+		<span class="muted small">© {new Date().getFullYear()} {SITE.name} · {SITE.location}</span>
+		<ContactLinks />
+	</div>
+</footer>
+
+<style>
+	footer { border-top: 1px solid var(--border); margin-top: 4rem; padding: 1.5rem 0; }
+	.row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; }
+</style>
