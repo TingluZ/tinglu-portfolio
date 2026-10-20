@@ -6,6 +6,7 @@
 	--border: #e4e3de;
 	--accent: #2459c9;
 	--accent-soft: #e8eefb;
+	--fno: #d9702b;
 	--max: 46rem;
 	--wide: 68rem;
 	--font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -21,6 +22,7 @@
 		--border: #2e2d2a;
 		--accent: #7aa2f7;
 		--accent-soft: #1e2840;
+		--fno: #f0a06a;
 		color-scheme: dark;
 	}
 }
@@ -32,6 +34,7 @@
 	--border: #2e2d2a;
 	--accent: #7aa2f7;
 	--accent-soft: #1e2840;
+	--fno: #f0a06a;
 	color-scheme: dark;
 }
 

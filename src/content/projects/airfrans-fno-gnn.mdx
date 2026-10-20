@@ -10,10 +10,11 @@ code: 'https://github.com/TingluZ/airfrans-fno-gnn'
 ---
 
 import SurfaceErrorChart from '../../components/SurfaceErrorChart.astro';
+import FlowExplorer from '../../components/airfrans/FlowExplorer.astro';
 
-<div class="callout">
-**Coming next:** an interactive explorer to compare CFD, FNO and GNN predictions on any of the 200 test airfoils, and a live GNN demo.
-</div>
+Pick any of the 200 held-out test airfoils and compare the CFD solution with both models. Switch to **Zoom to surface** to see where they differ most.
+
+<FlowExplorer />
 
 ## The problem
 
@@ -58,3 +59,17 @@ I tried a no-slip penalty on the GNN, penalising predicted velocity at wall node
 - Single train/validation/test split, so no error bars.
 - The GNN uses a k-NN graph rather than the true mesh connectivity, and has no edge features.
 - Next: rebuild the graph from the mesh triangulation with edge features, try per-channel loss weighting, and test a geometry-aware FNO.
+
+## Data and citation
+
+This project uses the [AirfRANS dataset](https://github.com/Extrality/AirfRANS) by Florent Bonnet, Jocelyn Ahmed Mazari, Paola Cinnella and Patrick Gallinari, released under the [Open Database License (ODbL) v1.0](https://opendatacommons.org/licenses/odbl/1-0/). The fields in the explorer above are a cropped, downsampled derivative of its test set, shared under the same licence.
+
+```bibtex
+@inproceedings{bonnet2022airfrans,
+  title={AirfRANS: High Fidelity Computational Fluid Dynamics Dataset for Approximating Reynolds-Averaged Navier-Stokes Solutions},
+  author={Florent Bonnet and Jocelyn Ahmed Mazari and Paola Cinnella and Patrick Gallinari},
+  booktitle={Thirty-sixth Conference on Neural Information Processing Systems Datasets and Benchmarks Track},
+  year={2022},
+  url={https://arxiv.org/abs/2212.07564}
+}
+```

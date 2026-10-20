@@ -1,0 +1,386 @@
+---
+// Interactive comparison of CFD ground truth, FNO and GNN on the AirfRANS test set.
+// Data: public/data/airfrans, written by airfrans-fno-gnn/scripts/export_web.py
+const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
+---
+
+<section class="explorer" data-base={base} aria-label="Flow field explorer">
+	<div class="toolbar">
+		<div class="case">
+			<span class="case-label" data-ref="caseLabel">Loading test cases…</span>
+			<button type="button" class="button small-btn" data-ref="random">Random case</button>
+		</div>
+		<div class="controls">
+			<div class="seg" role="group" aria-label="Field" data-ref="channels">
+				<button type="button" data-channel="0" aria-pressed="true">vx</button>
+				<button type="button" data-channel="1">vy</button>
+				<button type="button" data-channel="2">pressure</button>
+				<button type="button" data-channel="3">nu_t</button>
+			</div>
+			<div class="seg" role="group" aria-label="View">
+				<button type="button" data-view="full" aria-pressed="true">Whole airfoil</button>
+				<button type="button" data-view="surface">Zoom to surface</button>
+			</div>
+		</div>
+	</div>
+
+	<div class="panels" data-ref="panels">
+		<figure class="panel">
+			<figcaption><strong>CFD</strong> <span class="muted">ground truth</span></figcaption>
+			<canvas data-panel="truth"></canvas>
+		</figure>
+		<figure class="panel">
+			<figcaption><strong>FNO</strong> <span class="err" data-err="fno"></span></figcaption>
+			<canvas data-panel="fno"></canvas>
+		</figure>
+		<figure class="panel">
+			<figcaption><strong>GNN</strong> <span class="err" data-err="gnn"></span></figcaption>
+			<canvas data-panel="gnn"></canvas>
+		</figure>
+		<figure class="panel">
+			<figcaption>
+				<strong>Error</strong>
+				<span class="seg mini" role="group" aria-label="Error of model">
+					<button type="button" data-errmodel="fno" aria-pressed="true">FNO</button>
+					<button type="button" data-errmodel="gnn">GNN</button>
+				</span>
+			</figcaption>
+			<canvas data-panel="error"></canvas>
+		</figure>
+	</div>
+
+	<div class="legend">
+		<div class="bar-wrap">
+			<span class="muted small" data-ref="fieldLabel"></span>
+			<div class="bar" data-ref="fieldBar"></div>
+			<div class="ticks small muted"><span data-ref="fieldMin"></span><span data-ref="fieldMax"></span></div>
+		</div>
+		<div class="bar-wrap">
+			<span class="muted small">|prediction − CFD|, same scale for both models</span>
+			<div class="bar" data-ref="errBar"></div>
+			<div class="ticks small muted"><span>0</span><span data-ref="errMax"></span></div>
+		</div>
+	</div>
+	<p class="hint muted small">Drag to pan, scroll or pinch to zoom. All four panels move together.</p>
+
+	<div class="charts">
+		<figure>
+			<figcaption><strong data-ref="surfTitle">Surface values along the chord</strong></figcaption>
+			<svg data-ref="surfChart" viewBox="0 0 480 280" role="img" aria-label="Values on the airfoil surface"></svg>
+			<p class="muted small key">
+				<span class="dot truth"></span> CFD <span class="dot fno"></span> FNO <span class="dot gnn"></span> GNN
+			</p>
+		</figure>
+		<figure>
+			<figcaption><strong data-ref="pickTitle">Surface error for every test case</strong></figcaption>
+			<svg data-ref="pickChart" viewBox="0 0 480 280" role="img" aria-label="Error by angle of attack; click a point to open that case"></svg>
+			<p class="muted small key">
+				<span class="dot fno"></span> FNO <span class="dot gnn"></span> GNN · click a point to open that case
+			</p>
+		</figure>
+	</div>
+	<p class="status muted small" data-ref="status" role="status"></p>
+</section>
+
+<script>
+	import { CHANNELS, MODELS, loadCase, loadIndex, percentile, type CaseData, type CaseMeta, type Index, type Model } from './data';
+	import { FieldCanvas, colormapCss, type View } from './render';
+
+	const PRESETS = {
+		full: { cx: 0.75, cy: 0, w: 2.6 },
+		surface: { cx: 0.06, cy: 0.0, w: 0.28 },
+	};
+
+	function setup(root: HTMLElement) {
+		const base = root.dataset.base!;
+		const $ = <T extends Element = HTMLElement>(ref: string) => root.querySelector(`[data-ref="${ref}"]`) as T;
+		const status = $('status');
+
+		let index: Index;
+		let current: CaseData | undefined;
+		let channel = 0;
+		let errModel: Model = 'fno';
+		let preset: keyof typeof PRESETS = 'full';
+		let view: View = { cx: 0, cy: 0, ppu: 100 };
+
+		const panels: Record<string, FieldCanvas> = {};
+		try {
+			root.querySelectorAll<HTMLCanvasElement>('canvas[data-panel]').forEach((c) => (panels[c.dataset.panel!] = new FieldCanvas(c)));
+		} catch (e) {
+			status.textContent = `This explorer needs WebGL2: ${(e as Error).message}`;
+			return;
+		}
+		$('fieldBar').style.background = colormapCss('field');
+		$('errBar').style.background = colormapCss('error');
+
+		const bg = () => {
+			const c = getComputedStyle(root).getPropertyValue('--surface').trim() || '#ffffff';
+			const m = c.match(/^#([0-9a-f]{6})$/i);
+			const v = m ? parseInt(m[1], 16) : 0xffffff;
+			return [(v >> 16) & 255, (v >> 8) & 255, v & 255] as [number, number, number];
+		};
+
+		const fmt = (v: number) => {
+			const a = Math.abs(v);
+			if (a !== 0 && (a < 0.01 || a >= 1e4)) return v.toExponential(1);
+			return a >= 100 ? v.toFixed(0) : a >= 1 ? v.toFixed(1) : v.toFixed(3);
+		};
+		const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+
+		function fitPreset() {
+			const p = PRESETS[preset];
+			const w = panels.truth.canvas.clientWidth || 400;
+			view = { cx: p.cx, cy: p.cy, ppu: w / p.w };
+		}
+
+		let frame = 0;
+		function redraw() {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(() => {
+				const b = bg();
+				for (const p of Object.values(panels)) p.draw(view, b);
+			});
+		}
+
+		function updateValues() {
+			if (!current) return;
+			const v = current.values;
+			const truth = v.truth[channel];
+			const lo = percentile(truth, 0.01), hi = percentile(truth, 0.99);
+			panels.truth.setValues(truth, [lo, hi], 'field');
+			panels.fno.setValues(v.fno[channel], [lo, hi], 'field');
+			panels.gnn.setValues(v.gnn[channel], [lo, hi], 'field');
+
+			const err = (m: Model) => v[m][channel].map((x, i) => Math.abs(x - truth[i]));
+			const errs = { fno: err('fno'), gnn: err('gnn') };
+			const emax = Math.max(percentile(errs.fno, 0.99), percentile(errs.gnn, 0.99));
+			panels.error.setValues(errs[errModel], [0, emax], 'error');
+
+			const name = index.channels[channel];
+			$('fieldLabel').textContent = `${name} (${index.units[name].replace(/\^2/g, '²')})`;
+			$('fieldMin').textContent = fmt(lo);
+			$('fieldMax').textContent = fmt(hi);
+			$('errMax').textContent = fmt(emax);
+			for (const m of MODELS) {
+				const e = current.meta.error[m];
+				root.querySelector(`[data-err="${m}"]`)!.textContent =
+					`error ${pct(e.all[channel])} overall · ${pct(e.surface[channel])} at surface`;
+			}
+			drawSurfaceChart();
+			drawPickChart();
+			redraw();
+		}
+
+		async function show(meta: CaseMeta) {
+			status.textContent = '';
+			$('caseLabel').textContent = `Test case ${meta.id + 1} of ${index.cases.length} · angle of attack ${meta.aoa_deg.toFixed(1)}° · inlet ${meta.u_inf.toFixed(0)} m/s`;
+			try {
+				const data = await loadCase(base, index, meta);
+				current = data;
+				for (const p of Object.values(panels)) p.setMesh(data.pos, data.triangles);
+				updateValues();
+			} catch (e) {
+				status.textContent = `Couldn't load this case: ${(e as Error).message}`;
+			}
+		}
+
+		// ── charts ────────────────────────────────────────────────────────────
+		const W = 480, H = 280, L = 56, R = 12, T = 12, B = 34;
+		function axes(xs: [number, number], ys: [number, number], xl: string, yfmt: (v: number) => string) {
+			const sx = (x: number) => L + ((x - xs[0]) / (xs[1] - xs[0])) * (W - L - R);
+			const sy = (y: number) => H - B - ((y - ys[0]) / (ys[1] - ys[0] || 1)) * (H - T - B);
+			const ticks = (lo: number, hi: number, n = 4) => Array.from({ length: n + 1 }, (_, i) => lo + ((hi - lo) * i) / n);
+			let s = '';
+			for (const y of ticks(ys[0], ys[1])) s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${sy(y)}" y2="${sy(y)}"/><text class="tick" x="${L - 6}" y="${sy(y) + 4}" text-anchor="end">${yfmt(y)}</text>`;
+			for (const x of ticks(xs[0], xs[1])) s += `<text class="tick" x="${sx(x)}" y="${H - B + 16}" text-anchor="middle">${+x.toFixed(2)}</text>`;
+			s += `<text class="tick" x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">${xl}</text>`;
+			return { sx, sy, s };
+		}
+
+		function drawSurfaceChart() {
+			if (!current) return;
+			const name = index.channels[channel];
+			$('surfTitle').textContent = `${name} on the airfoil surface`;
+			const ns = current.meta.n_surface;
+			const xs = current.pos.filter((_, i) => i % 2 === 0).subarray(0, ns);
+			const series = (['truth', 'fno', 'gnn'] as const).map((s) => current!.values[s][channel].subarray(0, ns));
+			let lo = Infinity, hi = -Infinity;
+			for (const v of series) for (const y of v) { if (y < lo) lo = y; if (y > hi) hi = y; }
+			if (lo === hi) { lo -= 1; hi += 1; }
+			const ax = axes([0, 1], [lo, hi], 'x / chord', fmt);
+			let dots = '';
+			(['fno', 'gnn', 'truth'] as const).forEach((s) => {
+				const v = current!.values[s][channel];
+				let d = '';
+				for (let i = 0; i < ns; i++) d += `M${ax.sx(xs[i]).toFixed(1)} ${ax.sy(v[i]).toFixed(1)}h0`;
+				dots += `<path class="pts ${s}" d="${d}"/>`;
+			});
+			$('surfChart').innerHTML = ax.s + dots;
+		}
+
+		function drawPickChart() {
+			const name = index.channels[channel];
+			$('pickTitle').textContent = `Surface ${name} error for all ${index.cases.length} test cases`;
+			const aoa = index.cases.map((c) => c.aoa_deg);
+			const errs = index.cases.flatMap((c) => MODELS.map((m) => c.error[m].surface[channel]));
+			const ymax = percentile(errs, 0.99) * 1.05;
+			const ax = axes([Math.floor(Math.min(...aoa)), Math.ceil(Math.max(...aoa))], [0, ymax], 'angle of attack (°)', (v) => `${Math.round(v * 100)}%`);
+			let s = ax.s;
+			for (const m of MODELS) {
+				let d = '';
+				for (const c of index.cases) d += `M${ax.sx(c.aoa_deg).toFixed(1)} ${ax.sy(Math.min(c.error[m].surface[channel], ymax)).toFixed(1)}h0`;
+				s += `<path class="pts big ${m}" d="${d}"/>`;
+			}
+			if (current) {
+				const c = current.meta;
+				for (const m of MODELS) s += `<circle class="sel" r="6" cx="${ax.sx(c.aoa_deg)}" cy="${ax.sy(Math.min(c.error[m].surface[channel], ymax))}"/>`;
+			}
+			const svg = $<SVGSVGElement>('pickChart');
+			svg.innerHTML = s;
+			svg.onclick = (ev) => {
+				const r = svg.getBoundingClientRect();
+				const px = ((ev.clientX - r.left) / r.width) * W, py = ((ev.clientY - r.top) / r.height) * H;
+				let best: CaseMeta | undefined, bd = Infinity;
+				for (const c of index.cases) for (const m of MODELS) {
+					const d = (ax.sx(c.aoa_deg) - px) ** 2 + (ax.sy(Math.min(c.error[m].surface[channel], ymax)) - py) ** 2;
+					if (d < bd) { bd = d; best = c; }
+				}
+				if (best && bd < 400) show(best);
+			};
+		}
+
+		// ── interaction ───────────────────────────────────────────────────────
+		const pointers = new Map<number, { x: number; y: number }>();
+		let pinch = 0;
+		for (const p of Object.values(panels)) {
+			const c = p.canvas;
+			c.addEventListener('pointerdown', (e) => {
+				c.setPointerCapture(e.pointerId);
+				pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+				if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
+			});
+			c.addEventListener('pointermove', (e) => {
+				const prev = pointers.get(e.pointerId);
+				if (!prev) return;
+				pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+				if (pointers.size === 1) {
+					view = { ...view, cx: view.cx - (e.clientX - prev.x) / view.ppu, cy: view.cy + (e.clientY - prev.y) / view.ppu };
+				} else if (pointers.size === 2) {
+					const [a, b] = [...pointers.values()];
+					const d = Math.hypot(a.x - b.x, a.y - b.y);
+					if (pinch) view = { ...view, ppu: clampZoom(view.ppu * (d / pinch)) };
+					pinch = d;
+				}
+				redraw();
+			});
+			const end = (e: PointerEvent) => { pointers.delete(e.pointerId); pinch = 0; };
+			c.addEventListener('pointerup', end);
+			c.addEventListener('pointercancel', end);
+			c.addEventListener('wheel', (e) => {
+				e.preventDefault();
+				const r = c.getBoundingClientRect();
+				const mx = view.cx + (e.clientX - r.left - r.width / 2) / view.ppu;
+				const my = view.cy - (e.clientY - r.top - r.height / 2) / view.ppu;
+				const ppu = clampZoom(view.ppu * Math.exp(-e.deltaY * 0.0015));
+				view = { ppu, cx: mx - (e.clientX - r.left - r.width / 2) / ppu, cy: my + (e.clientY - r.top - r.height / 2) / ppu };
+				redraw();
+			}, { passive: false });
+		}
+		function clampZoom(ppu: number) {
+			const w = panels.truth.canvas.clientWidth || 400;
+			return Math.min(Math.max(ppu, w / 6), w / 0.01);
+		}
+
+		function press(group: Element, btn: Element) {
+			group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+		}
+		root.querySelectorAll<HTMLButtonElement>('[data-channel]').forEach((b) =>
+			b.addEventListener('click', () => { channel = +b.dataset.channel!; press(b.parentElement!, b); updateValues(); }),
+		);
+		root.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((b) =>
+			b.addEventListener('click', () => { preset = b.dataset.view as keyof typeof PRESETS; press(b.parentElement!, b); fitPreset(); redraw(); }),
+		);
+		root.querySelectorAll<HTMLButtonElement>('[data-errmodel]').forEach((b) =>
+			b.addEventListener('click', () => { errModel = b.dataset.errmodel as Model; press(b.parentElement!, b); updateValues(); }),
+		);
+		$('random').addEventListener('click', () => {
+			if (!index) return;
+			let c: CaseMeta;
+			do c = index.cases[Math.floor(Math.random() * index.cases.length)];
+			while (index.cases.length > 1 && c.id === current?.meta.id);
+			show(c);
+		});
+		new ResizeObserver(() => redraw()).observe($('panels'));
+		new MutationObserver(redraw).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+		matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw);
+
+		// ── start ─────────────────────────────────────────────────────────────
+		loadIndex(base)
+			.then((idx) => {
+				index = idx;
+				if (idx.channels.some((c, i) => c !== CHANNELS[i])) throw new Error('unexpected channel layout');
+				// open on a typical case: the one with median FNO surface vx error
+				const sorted = [...idx.cases].sort((a, b) => a.error.fno.surface[0] - b.error.fno.surface[0]);
+				fitPreset();
+				show(sorted[Math.floor(sorted.length / 2)]);
+			})
+			.catch((e) => {
+				$('caseLabel').textContent = 'The explorer data is not available yet.';
+				status.textContent = (e as Error).message;
+			});
+	}
+
+	document.querySelectorAll<HTMLElement>('.explorer[data-base]').forEach(setup);
+</script>
+
+<style>
+	.explorer { margin: 2rem 0 2.5rem; }
+	.toolbar { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 0.75rem; }
+	.case { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+	.case-label { font-weight: 500; font-size: 0.95rem; }
+	.small-btn { padding: 0.3rem 0.7rem; font-size: 0.85rem; }
+	.controls { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+	.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+	.seg button {
+		border: 0; background: var(--surface); color: var(--muted); padding: 0.35rem 0.7rem;
+		font: inherit; font-size: 0.85rem; cursor: pointer;
+	}
+	.seg button + button { border-left: 1px solid var(--border); }
+	.seg button[aria-pressed='true'] { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+	.seg.mini button { padding: 0.1rem 0.5rem; font-size: 0.78rem; }
+	.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+	.panel { margin: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+	.panel figcaption {
+		display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem;
+		padding: 0.35rem 0.6rem; font-size: 0.85rem; border-bottom: 1px solid var(--border); min-height: 2.1rem;
+	}
+	.err { color: var(--muted); font-size: 0.78rem; }
+	canvas { display: block; width: 100%; aspect-ratio: 2 / 1; touch-action: pan-y; cursor: grab; }
+	canvas:active { cursor: grabbing; }
+	.legend { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.75rem; }
+	.bar { height: 10px; border-radius: 3px; margin: 0.25rem 0 0.1rem; }
+	.ticks { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+	.hint { margin: 0.5rem 0 0; }
+	.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem; }
+	.charts figure { margin: 0; }
+	.charts figcaption { font-size: 0.9rem; margin-bottom: 0.25rem; }
+	.charts svg { width: 100%; height: auto; display: block; }
+	.charts :global(.grid) { stroke: var(--border); }
+	.charts :global(.tick) { fill: var(--muted); font-size: 11px; font-family: var(--font); }
+	.charts :global(.pts) { stroke-linecap: round; stroke-width: 3; fill: none; }
+	.charts :global(.pts.big) { stroke-width: 6; stroke-opacity: 0.75; }
+	.charts :global(.pts.truth) { stroke: var(--text); }
+	.charts :global(.pts.fno) { stroke: var(--fno); }
+	.charts :global(.pts.gnn) { stroke: var(--accent); }
+	.charts :global(.sel) { fill: none; stroke: var(--text); stroke-width: 1.5; }
+	.charts svg[data-ref='pickChart'] { cursor: pointer; }
+	.key { margin: 0.25rem 0 0; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+	.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-left: 0.4rem; }
+	.dot.truth { background: var(--text); }
+	.dot.fno { background: var(--fno); }
+	.dot.gnn { background: var(--accent); }
+	.status:empty { display: none; }
+	@media (max-width: 640px) {
+		.panels, .legend, .charts { grid-template-columns: 1fr; }
+	}
+</style>
