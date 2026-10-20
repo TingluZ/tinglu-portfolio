@@ -98,16 +98,59 @@ async function fetchCase(base: string, index: Index, meta: CaseMeta): Promise<Ca
 
 	const { Delaunay } = await import('d3-delaunay');
 	const tri = new Delaunay(pos).triangles;
-	// The airfoil interior holds no mesh points, so any triangle whose three
-	// corners are all surface points spans the inside of the airfoil.
-	const ns = meta.n_surface;
+	// Delaunay also fills the inside of the airfoil, so drop every triangle
+	// whose centroid falls between the lower and upper surface.
+	const inside = airfoilTest(pos, meta.n_surface);
 	const keep: number[] = [];
 	for (let t = 0; t < tri.length; t += 3) {
 		const a = tri[t], b = tri[t + 1], c = tri[t + 2];
-		if (a < ns && b < ns && c < ns) continue;
+		const cx = (pos[2 * a] + pos[2 * b] + pos[2 * c]) / 3;
+		const cy = (pos[2 * a + 1] + pos[2 * b + 1] + pos[2 * c + 1]) / 3;
+		if (inside(cx, cy)) continue;
 		keep.push(a, b, c);
 	}
 	return { meta, pos, values, triangles: Uint32Array.from(keep) };
+}
+
+/**
+ * Point-in-airfoil test from the surface points. AirfRANS airfoils sit at zero
+ * incidence with the chord on x in [0, 1] (angle of attack is in the inflow),
+ * so at each x the airfoil spans from its lower to its upper surface.
+ * Surface points are split into upper and lower by a coarse camber line, and
+ * each surface is then interpolated linearly between its own points.
+ */
+function airfoilTest(pos: Float32Array, nSurface: number) {
+	const xs: number[] = [], ys: number[] = [];
+	for (let i = 0; i < nSurface; i++) { xs.push(pos[2 * i]); ys.push(pos[2 * i + 1]); }
+	const xmin = Math.min(...xs), xmax = Math.max(...xs);
+
+	// coarse camber line: midpoint of min and max y in cosine-spaced bins
+	const NB = 40;
+	const bin = (x: number) => {
+		const t = Math.min(Math.max((x - xmin) / (xmax - xmin), 0), 1);
+		return Math.min(NB - 1, Math.floor((Math.acos(1 - 2 * t) / Math.PI) * NB));
+	};
+	const bmin = new Array(NB).fill(Infinity), bmax = new Array(NB).fill(-Infinity);
+	xs.forEach((x, i) => { const b = bin(x); bmin[b] = Math.min(bmin[b], ys[i]); bmax[b] = Math.max(bmax[b], ys[i]); });
+	const mid = bmin.map((v, b) => (Number.isFinite(v) ? (v + bmax[b]) / 2 : NaN));
+	for (let b = 1; b < NB; b++) if (Number.isNaN(mid[b])) mid[b] = mid[b - 1];
+	for (let b = NB - 2; b >= 0; b--) if (Number.isNaN(mid[b])) mid[b] = mid[b + 1];
+
+	const upper: [number, number][] = [], lower: [number, number][] = [];
+	xs.forEach((x, i) => (ys[i] >= mid[bin(x)] ? upper : lower).push([x, ys[i]]));
+	upper.sort((a, b) => a[0] - b[0]);
+	lower.sort((a, b) => a[0] - b[0]);
+
+	const interp = (pts: [number, number][], x: number) => {
+		let l = 0, r = pts.length - 1;
+		if (r < 0) return NaN;
+		if (x <= pts[0][0]) return pts[0][1];
+		if (x >= pts[r][0]) return pts[r][1];
+		while (r - l > 1) { const m = (l + r) >> 1; if (pts[m][0] <= x) l = m; else r = m; }
+		const [x0, y0] = pts[l], [x1, y1] = pts[r];
+		return x1 > x0 ? y0 + ((y1 - y0) * (x - x0)) / (x1 - x0) : y0;
+	};
+	return (x: number, y: number) => x > xmin && x < xmax && y < interp(upper, x) && y > interp(lower, x);
 }
 
 export function percentile(values: ArrayLike<number>, p: number) {
