@@ -1,5 +1,7 @@
 # tinglu-portfolio
 
+**Live site: [tingluz.github.io/tinglu-portfolio](https://tingluz.github.io/tinglu-portfolio/)**
+
 Personal site: projects, blog and about page. Built with [Astro](https://astro.build), deployed to GitHub Pages on every push to `main`.
 
 ## Run locally
