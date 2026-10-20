@@ -31,8 +31,13 @@ export interface CaseData {
 	pos: Float32Array;
 	/** values[source][channel] -> Float32Array(n) in physical units */
 	values: Record<Source, Float32Array[]>;
-	/** triangle vertex indices, airfoil interior removed */
+	/** Delaunay triangles outside the airfoil */
 	triangles: Uint32Array;
+	/** surface point indices on the upper and lower surface, each sorted by x */
+	upper: Uint32Array;
+	lower: Uint32Array;
+	/** airfoil outline as a triangle strip (x, y pairs), drawn over the field as a mask */
+	outline: Float32Array;
 }
 
 // float16 -> float32 lookup, built once (Float16Array isn't available everywhere yet)
@@ -98,59 +103,90 @@ async function fetchCase(base: string, index: Index, meta: CaseMeta): Promise<Ca
 
 	const { Delaunay } = await import('d3-delaunay');
 	const tri = new Delaunay(pos).triangles;
-	// Delaunay also fills the inside of the airfoil, so drop every triangle
-	// whose centroid falls between the lower and upper surface.
-	const inside = airfoilTest(pos, meta.n_surface);
+	const { upper, lower } = splitSurface(pos, meta.n_surface);
+
+	// Delaunay also fills the airfoil and bridges across it near the thin
+	// trailing edge; those triangles would smear upper-surface values onto the
+	// lower side. Drop any triangle whose centroid is inside, or with an edge
+	// whose midpoint is inside. Edges between two surface points are exempt:
+	// they are chords of the wall and dip inside it by design.
+	const xmin = Math.min(pos[2 * upper[0]], pos[2 * lower[0]]);
+	const xmax = Math.max(pos[2 * upper[upper.length - 1]], pos[2 * lower[lower.length - 1]]);
+	const inside = (x: number, y: number) =>
+		x > xmin && x < xmax && y < surfaceY(pos, upper, x) && y > surfaceY(pos, lower, x);
 	const keep: number[] = [];
 	for (let t = 0; t < tri.length; t += 3) {
 		const a = tri[t], b = tri[t + 1], c = tri[t + 2];
-		const cx = (pos[2 * a] + pos[2 * b] + pos[2 * c]) / 3;
-		const cy = (pos[2 * a + 1] + pos[2 * b + 1] + pos[2 * c + 1]) / 3;
-		if (inside(cx, cy)) continue;
+		const ax = pos[2 * a], ay = pos[2 * a + 1], bx = pos[2 * b], by = pos[2 * b + 1], cx = pos[2 * c], cy = pos[2 * c + 1];
+		const ns = meta.n_surface;
+		if (
+			inside((ax + bx + cx) / 3, (ay + by + cy) / 3) ||
+			((a >= ns || b >= ns) && inside((ax + bx) / 2, (ay + by) / 2)) ||
+			((b >= ns || c >= ns) && inside((bx + cx) / 2, (by + cy) / 2)) ||
+			((a >= ns || c >= ns) && inside((ax + cx) / 2, (ay + cy) / 2))
+		) continue;
 		keep.push(a, b, c);
 	}
-	return { meta, pos, values, triangles: Uint32Array.from(keep) };
+	return { meta, pos, values, triangles: Uint32Array.from(keep), upper, lower, outline: outlineStrip(pos, upper, lower) };
 }
 
 /**
- * Point-in-airfoil test from the surface points. AirfRANS airfoils sit at zero
- * incidence with the chord on x in [0, 1] (angle of attack is in the inflow),
- * so at each x the airfoil spans from its lower to its upper surface.
- * Surface points are split into upper and lower by a coarse camber line, and
- * each surface is then interpolated linearly between its own points.
+ * Split surface points into upper and lower surface, each sorted by x.
+ * AirfRANS airfoils sit at zero incidence with the chord on x in [0, 1]
+ * (angle of attack is in the inflow), so a coarse camber line, the midpoint
+ * of the lowest and highest surface point in cosine-spaced x bins, separates them.
  */
-function airfoilTest(pos: Float32Array, nSurface: number) {
-	const xs: number[] = [], ys: number[] = [];
-	for (let i = 0; i < nSurface; i++) { xs.push(pos[2 * i]); ys.push(pos[2 * i + 1]); }
-	const xmin = Math.min(...xs), xmax = Math.max(...xs);
-
-	// coarse camber line: midpoint of min and max y in cosine-spaced bins
+function splitSurface(pos: Float32Array, nSurface: number) {
+	let xmin = Infinity, xmax = -Infinity;
+	for (let i = 0; i < nSurface; i++) { xmin = Math.min(xmin, pos[2 * i]); xmax = Math.max(xmax, pos[2 * i]); }
 	const NB = 40;
 	const bin = (x: number) => {
 		const t = Math.min(Math.max((x - xmin) / (xmax - xmin), 0), 1);
 		return Math.min(NB - 1, Math.floor((Math.acos(1 - 2 * t) / Math.PI) * NB));
 	};
 	const bmin = new Array(NB).fill(Infinity), bmax = new Array(NB).fill(-Infinity);
-	xs.forEach((x, i) => { const b = bin(x); bmin[b] = Math.min(bmin[b], ys[i]); bmax[b] = Math.max(bmax[b], ys[i]); });
+	for (let i = 0; i < nSurface; i++) {
+		const b = bin(pos[2 * i]);
+		bmin[b] = Math.min(bmin[b], pos[2 * i + 1]);
+		bmax[b] = Math.max(bmax[b], pos[2 * i + 1]);
+	}
 	const mid = bmin.map((v, b) => (Number.isFinite(v) ? (v + bmax[b]) / 2 : NaN));
 	for (let b = 1; b < NB; b++) if (Number.isNaN(mid[b])) mid[b] = mid[b - 1];
 	for (let b = NB - 2; b >= 0; b--) if (Number.isNaN(mid[b])) mid[b] = mid[b + 1];
 
-	const upper: [number, number][] = [], lower: [number, number][] = [];
-	xs.forEach((x, i) => (ys[i] >= mid[bin(x)] ? upper : lower).push([x, ys[i]]));
-	upper.sort((a, b) => a[0] - b[0]);
-	lower.sort((a, b) => a[0] - b[0]);
+	const up: number[] = [], lo: number[] = [];
+	for (let i = 0; i < nSurface; i++) (pos[2 * i + 1] >= mid[bin(pos[2 * i])] ? up : lo).push(i);
+	const byX = (a: number, b: number) => pos[2 * a] - pos[2 * b];
+	return { upper: Uint32Array.from(up.sort(byX)), lower: Uint32Array.from(lo.sort(byX)) };
+}
 
-	const interp = (pts: [number, number][], x: number) => {
-		let l = 0, r = pts.length - 1;
-		if (r < 0) return NaN;
-		if (x <= pts[0][0]) return pts[0][1];
-		if (x >= pts[r][0]) return pts[r][1];
-		while (r - l > 1) { const m = (l + r) >> 1; if (pts[m][0] <= x) l = m; else r = m; }
-		const [x0, y0] = pts[l], [x1, y1] = pts[r];
-		return x1 > x0 ? y0 + ((y1 - y0) * (x - x0)) / (x1 - x0) : y0;
-	};
-	return (x: number, y: number) => x > xmin && x < xmax && y < interp(upper, x) && y > interp(lower, x);
+/** Linear interpolation of y along one surface (indices sorted by x). */
+function surfaceY(pos: Float32Array, idx: Uint32Array, x: number) {
+	let l = 0, r = idx.length - 1;
+	if (x <= pos[2 * idx[0]]) return pos[2 * idx[0] + 1];
+	if (x >= pos[2 * idx[r]]) return pos[2 * idx[r] + 1];
+	while (r - l > 1) { const m = (l + r) >> 1; if (pos[2 * idx[m]] <= x) l = m; else r = m; }
+	const x0 = pos[2 * idx[l]], x1 = pos[2 * idx[r]];
+	const y0 = pos[2 * idx[l] + 1], y1 = pos[2 * idx[r] + 1];
+	return x1 > x0 ? y0 + ((y1 - y0) * (x - x0)) / (x1 - x0) : y0;
+}
+
+/**
+ * The airfoil as a triangle strip between its lower and upper surface on a
+ * cosine-spaced x grid (dense at both edges), so the outline is smooth even
+ * where the downsampled field triangles are coarse.
+ */
+function outlineStrip(pos: Float32Array, upper: Uint32Array, lower: Uint32Array) {
+	if (!upper.length || !lower.length) return new Float32Array();
+	const x0 = Math.min(pos[2 * upper[0]], pos[2 * lower[0]]);
+	const x1 = Math.max(pos[2 * upper[upper.length - 1]], pos[2 * lower[lower.length - 1]]);
+	const N = 400;
+	const strip = new Float32Array(N * 4);
+	for (let i = 0; i < N; i++) {
+		const x = x0 + ((1 - Math.cos((Math.PI * i) / (N - 1))) / 2) * (x1 - x0);
+		strip.set([x, surfaceY(pos, lower, x), x, surfaceY(pos, upper, x)], i * 4);
+	}
+	return strip;
 }
 
 export function percentile(values: ArrayLike<number>, p: number) {

@@ -12,9 +12,9 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 		</div>
 		<div class="controls">
 			<div class="seg" role="group" aria-label="Field" data-ref="channels">
-				<button type="button" data-channel="0" aria-pressed="true">vx</button>
+				<button type="button" data-channel="0">vx</button>
 				<button type="button" data-channel="1">vy</button>
-				<button type="button" data-channel="2">pressure</button>
+				<button type="button" data-channel="2" aria-pressed="true">pressure</button>
 				<button type="button" data-channel="3">nu_t</button>
 			</div>
 			<div class="seg" role="group" aria-label="View">
@@ -56,7 +56,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 			<div class="ticks small muted"><span data-ref="fieldMin"></span><span data-ref="fieldMax"></span></div>
 		</div>
 		<div class="bar-wrap">
-			<span class="muted small">|prediction − CFD|, same scale for both models</span>
+			<span class="muted small">|prediction − CFD|, one scale for both models so FNO and GNN compare directly</span>
 			<div class="bar" data-ref="errBar"></div>
 			<div class="ticks small muted"><span>0</span><span data-ref="errMax"></span></div>
 		</div>
@@ -70,6 +70,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 			<p class="muted small key">
 				<span class="dot truth"></span> CFD <span class="dot fno"></span> FNO <span class="dot gnn"></span> GNN
 			</p>
+			<p class="muted small note" data-ref="surfNote"></p>
 		</figure>
 		<figure>
 			<figcaption><strong data-ref="pickTitle">Surface error for every test case</strong></figcaption>
@@ -98,7 +99,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 
 		let index: Index;
 		let current: CaseData | undefined;
-		let channel = 0;
+		let channel = 2; // pressure
 		let errModel: Model = 'fno';
 		let preset: keyof typeof PRESETS = 'full';
 		let view: View = { cx: 0, cy: 0, ppu: 100 };
@@ -164,7 +165,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 			for (const m of MODELS) {
 				const e = current.meta.error[m];
 				root.querySelector(`[data-err="${m}"]`)!.textContent =
-					`error ${pct(e.all[channel])} overall · ${pct(e.surface[channel])} at surface`;
+					`relative L2 error ${pct(e.all[channel])} overall · ${pct(e.surface[channel])} at surface`;
 			}
 			drawSurfaceChart();
 			drawPickChart();
@@ -177,7 +178,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 			try {
 				const data = await loadCase(base, index, meta);
 				current = data;
-				for (const p of Object.values(panels)) p.setMesh(data.pos, data.triangles);
+				for (const p of Object.values(panels)) p.setMesh(data.pos, data.triangles, data.outline);
 				updateValues();
 			} catch (e) {
 				status.textContent = `Couldn't load this case: ${(e as Error).message}`;
@@ -186,45 +187,72 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 
 		// ── charts ────────────────────────────────────────────────────────────
 		const W = 480, H = 280, L = 56, R = 12, T = 12, B = 34;
-		function axes(xs: [number, number], ys: [number, number], xl: string, yfmt: (v: number) => string) {
-			const sx = (x: number) => L + ((x - xs[0]) / (xs[1] - xs[0])) * (W - L - R);
-			const sy = (y: number) => H - B - ((y - ys[0]) / (ys[1] - ys[0] || 1)) * (H - T - B);
-			const ticks = (lo: number, hi: number, n = 4) => Array.from({ length: n + 1 }, (_, i) => lo + ((hi - lo) * i) / n);
+
+		/** Round tick values covering [lo, hi]: steps of 1, 2 or 5 times a power of ten. */
+		function niceTicks(lo: number, hi: number, target = 5) {
+			const raw = (hi - lo) / target || 1;
+			const mag = 10 ** Math.floor(Math.log10(raw));
+			const step = [1, 2, 5, 10].map((k) => k * mag).find((st) => st >= raw)!;
+			const start = Math.floor(lo / step) * step, end = Math.ceil(hi / step) * step;
+			return Array.from({ length: Math.round((end - start) / step) + 1 }, (_, i) => +(start + i * step).toPrecision(12));
+		}
+
+		/** Axes with round ticks; the y domain widens to its outer ticks. `flipY` puts low values at the top. */
+		function axes(xs: [number, number], ys: [number, number], xl: string, yl: string, yfmt: (v: number) => string, flipY = false) {
+			const xt = niceTicks(xs[0], xs[1]), yt = niceTicks(ys[0], ys[1]);
+			const [x0, x1] = [xt[0], xt.at(-1)!], [y0, y1] = [yt[0], yt.at(-1)!];
+			const sx = (x: number) => L + ((x - x0) / (x1 - x0)) * (W - L - R);
+			const f = (y: number) => (y - y0) / (y1 - y0 || 1);
+			const sy = (y: number) => (flipY ? T + f(y) * (H - T - B) : H - B - f(y) * (H - T - B));
 			let s = '';
-			for (const y of ticks(ys[0], ys[1])) s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${sy(y)}" y2="${sy(y)}"/><text class="tick" x="${L - 6}" y="${sy(y) + 4}" text-anchor="end">${yfmt(y)}</text>`;
-			for (const x of ticks(xs[0], xs[1])) s += `<text class="tick" x="${sx(x)}" y="${H - B + 16}" text-anchor="middle">${+x.toFixed(2)}</text>`;
+			for (const y of yt) s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${sy(y)}" y2="${sy(y)}"/><text class="tick" x="${L - 6}" y="${sy(y) + 4}" text-anchor="end">${yfmt(y)}</text>`;
+			for (const x of xt) s += `<text class="tick" x="${sx(x)}" y="${H - B + 16}" text-anchor="middle">${x}</text>`;
 			s += `<text class="tick" x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">${xl}</text>`;
-			return { sx, sy, s };
+			s += `<text class="tick" transform="translate(12 ${(T + H - B) / 2}) rotate(-90)" text-anchor="middle">${yl}</text>`;
+			return { sx, sy, s, ymax: y1 };
 		}
 
 		function drawSurfaceChart() {
 			if (!current) return;
+			const c = current;
 			const name = index.channels[channel];
-			$('surfTitle').textContent = `${name} on the airfoil surface`;
-			const ns = current.meta.n_surface;
-			const xs = current.pos.filter((_, i) => i % 2 === 0).subarray(0, ns);
-			const series = (['truth', 'fno', 'gnn'] as const).map((s) => current!.values[s][channel].subarray(0, ns));
+			// pressure is shown as a pressure coefficient, suction side up, as is usual in aerodynamics;
+			// freestream kinematic pressure is 0 in AirfRANS, so Cp = p / (U^2 / 2)
+			const cp = name === 'pressure';
+			const k = cp ? 2 / c.meta.u_inf ** 2 : 1;
+			$('surfTitle').textContent = cp ? 'Pressure coefficient on the airfoil surface' : `${name} on the airfoil surface`;
+			$('surfNote').textContent = cp
+				? 'Suction side plotted upwards. Solid lines: upper surface, dashed: lower.'
+				: name === 'nu_t'
+					? 'CFD is zero at the wall, so any non-zero value is error. Solid lines: upper surface, dashed: lower.'
+					: 'CFD is zero at the wall (no-slip), so any non-zero value is error. Solid lines: upper surface, dashed: lower.';
 			let lo = Infinity, hi = -Infinity;
-			for (const v of series) for (const y of v) { if (y < lo) lo = y; if (y > hi) hi = y; }
+			for (const src of ['truth', 'fno', 'gnn'] as const) for (const i of [...c.upper, ...c.lower]) {
+				const y = c.values[src][channel][i] * k;
+				if (y < lo) lo = y;
+				if (y > hi) hi = y;
+			}
 			if (lo === hi) { lo -= 1; hi += 1; }
-			const ax = axes([0, 1], [lo, hi], 'x / chord', fmt);
-			let dots = '';
-			(['fno', 'gnn', 'truth'] as const).forEach((s) => {
-				const v = current!.values[s][channel];
-				let d = '';
-				for (let i = 0; i < ns; i++) d += `M${ax.sx(xs[i]).toFixed(1)} ${ax.sy(v[i]).toFixed(1)}h0`;
-				dots += `<path class="pts ${s}" d="${d}"/>`;
-			});
-			$('surfChart').innerHTML = ax.s + dots;
+			const ax = axes([0, 1], [lo, hi], 'x / chord', cp ? 'Cp' : `${name} (${index.units[name].replace(/\^2/g, '²')})`, fmt, cp);
+			let lines = '';
+			for (const src of ['fno', 'gnn', 'truth'] as const) {
+				const v = c.values[src][channel];
+				for (const [surf, idx] of [['upper', c.upper], ['lower', c.lower]] as const) {
+					let d = '';
+					idx.forEach((i, j) => (d += `${j ? 'L' : 'M'}${ax.sx(c.pos[2 * i]).toFixed(1)} ${ax.sy(v[i] * k).toFixed(1)}`));
+					lines += `<path class="line ${src} ${surf}" d="${d}"/>`;
+				}
+			}
+			$('surfChart').innerHTML = ax.s + lines;
 		}
 
 		function drawPickChart() {
 			const name = index.channels[channel];
-			$('pickTitle').textContent = `Surface ${name} error for all ${index.cases.length} test cases`;
+			$('pickTitle').textContent = `Surface ${name} error (relative L2) for all ${index.cases.length} test cases`;
 			const aoa = index.cases.map((c) => c.aoa_deg);
 			const errs = index.cases.flatMap((c) => MODELS.map((m) => c.error[m].surface[channel]));
-			const ymax = percentile(errs, 0.99) * 1.05;
-			const ax = axes([Math.floor(Math.min(...aoa)), Math.ceil(Math.max(...aoa))], [0, ymax], 'angle of attack (°)', (v) => `${Math.round(v * 100)}%`);
+			const ax = axes([Math.min(...aoa), Math.max(...aoa)], [0, percentile(errs, 0.99)], 'angle of attack (°)', 'relative L2 error', (v) => `${Math.round(v * 100)}%`);
+			const ymax = ax.ymax;
 			let s = ax.s;
 			for (const m of MODELS) {
 				let d = '';
@@ -352,7 +380,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 	.panel { margin: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
 	.panel figcaption {
 		display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem;
-		padding: 0.35rem 0.6rem; font-size: 0.85rem; border-bottom: 1px solid var(--border); min-height: 2.1rem;
+		padding: 0.35rem 0.6rem; font-size: 0.85rem; border-bottom: 1px solid var(--border); min-height: 3.2rem;
 	}
 	.err { color: var(--muted); font-size: 0.78rem; }
 	canvas { display: block; width: 100%; aspect-ratio: 2 / 1; touch-action: pan-y; cursor: grab; }
@@ -367,9 +395,14 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 	.charts svg { width: 100%; height: auto; display: block; }
 	.charts :global(.grid) { stroke: var(--border); }
 	.charts :global(.tick) { fill: var(--muted); font-size: 11px; font-family: var(--font); }
+	.charts :global(.line) { fill: none; stroke-width: 1.5; stroke-linejoin: round; }
+	.charts :global(.line.truth) { stroke: var(--text); stroke-width: 2; }
+	.charts :global(.line.fno) { stroke: var(--fno); }
+	.charts :global(.line.gnn) { stroke: var(--accent); }
+	.charts :global(.line.lower) { stroke-dasharray: 4 3; }
+	.note { margin: 0.15rem 0 0; }
 	.charts :global(.pts) { stroke-linecap: round; stroke-width: 3; fill: none; }
 	.charts :global(.pts.big) { stroke-width: 6; stroke-opacity: 0.75; }
-	.charts :global(.pts.truth) { stroke: var(--text); }
 	.charts :global(.pts.fno) { stroke: var(--fno); }
 	.charts :global(.pts.gnn) { stroke: var(--accent); }
 	.charts :global(.sel) { fill: none; stroke: var(--text); stroke-width: 1.5; }

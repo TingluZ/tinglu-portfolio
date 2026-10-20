@@ -21,7 +21,7 @@ const { title, result, tags, code, demo, post } = project.data;
 			<p class="result">{result}</p>
 			<ul class="tags">{tags.map((t) => <li class="tag">{t}</li>)}</ul>
 			<div class="actions">
-				{demo ? <a class="button primary" href={demo}>Try the demo</a> : <span class="button" aria-disabled="true">Live demo coming soon</span>}
+				{demo && <a class="button primary" href={demo}>Try the demo</a>}
 				{code && <a class="button" href={code}>Code</a>}
 				{post && <a class="button" href={url(post)}>Blog post</a>}
 			</div>
