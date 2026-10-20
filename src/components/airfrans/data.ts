@@ -102,32 +102,65 @@ async function fetchCase(base: string, index: Index, meta: CaseMeta): Promise<Ca
 	});
 
 	const { Delaunay } = await import('d3-delaunay');
-	const tri = new Delaunay(pos).triangles;
 	const { upper, lower } = splitSurface(pos, meta.n_surface);
+	const ns = meta.n_surface;
+	// Near the wall the export keeps points in layers above every 4th surface
+	// point (a station). Surface points between stations would connect to the
+	// thin layers through long slivers, so the mesh uses only the stations;
+	// the outline mask still follows every surface point.
+	const mesh = [...stations(pos, ns), ...Array.from({ length: pos.length / 2 - ns }, (_, i) => ns + i)];
+	const tri = new Delaunay(Float64Array.from(mesh.flatMap((i) => [pos[2 * i], pos[2 * i + 1]]))).triangles;
 
 	// Delaunay also fills the airfoil and bridges across it near the thin
 	// trailing edge; those triangles would smear upper-surface values onto the
-	// lower side. Drop any triangle whose centroid is inside, or with an edge
-	// whose midpoint is inside. Edges between two surface points are exempt:
-	// they are chords of the wall and dip inside it by design.
+	// lower side. Drop triangles inside the airfoil (all corners on the wall,
+	// centroid inside) and triangles with corners on both sides of it that
+	// cross it. Others may dip slightly into the airfoil where the wall
+	// curves; the outline mask hides that, and dropping them would leave notches.
 	const xmin = Math.min(pos[2 * upper[0]], pos[2 * lower[0]]);
 	const xmax = Math.max(pos[2 * upper[upper.length - 1]], pos[2 * lower[lower.length - 1]]);
 	const inside = (x: number, y: number) =>
 		x > xmin && x < xmax && y < surfaceY(pos, upper, x) && y > surfaceY(pos, lower, x);
+	// +1 above the camber line, -1 below, 0 ahead of or behind the airfoil
+	const side = (i: number) => {
+		const x = pos[2 * i], y = pos[2 * i + 1];
+		if (x <= xmin || x >= xmax) return 0;
+		return y > (surfaceY(pos, upper, x) + surfaceY(pos, lower, x)) / 2 ? 1 : -1;
+	};
 	const keep: number[] = [];
 	for (let t = 0; t < tri.length; t += 3) {
-		const a = tri[t], b = tri[t + 1], c = tri[t + 2];
+		const a = mesh[tri[t]], b = mesh[tri[t + 1]], c = mesh[tri[t + 2]];
 		const ax = pos[2 * a], ay = pos[2 * a + 1], bx = pos[2 * b], by = pos[2 * b + 1], cx = pos[2 * c], cy = pos[2 * c + 1];
-		const ns = meta.n_surface;
+		const sa = side(a), sb = side(b), sc = side(c);
+		const bridging = Math.min(sa, sb, sc) < 0 && Math.max(sa, sb, sc) > 0;
+		if (a < ns && b < ns && c < ns && inside((ax + bx + cx) / 3, (ay + by + cy) / 3)) continue;
 		if (
-			inside((ax + bx + cx) / 3, (ay + by + cy) / 3) ||
-			((a >= ns || b >= ns) && inside((ax + bx) / 2, (ay + by) / 2)) ||
-			((b >= ns || c >= ns) && inside((bx + cx) / 2, (by + cy) / 2)) ||
-			((a >= ns || c >= ns) && inside((ax + cx) / 2, (ay + cy) / 2))
+			bridging &&
+			(inside((ax + bx + cx) / 3, (ay + by + cy) / 3) ||
+				inside((ax + bx) / 2, (ay + by) / 2) ||
+				inside((bx + cx) / 2, (by + cy) / 2) ||
+				inside((ax + cx) / 2, (ay + cy) / 2))
 		) continue;
 		keep.push(a, b, c);
 	}
 	return { meta, pos, values, triangles: Uint32Array.from(keep), upper, lower, outline: outlineStrip(pos, upper, lower) };
+}
+
+/**
+ * Surface points with an off-wall point almost straight above them: the feet
+ * of the export's wall layers, whose first layer sits 2e-4 to 3.4e-4 chords
+ * off the wall. Falls back to every surface point for data without layers.
+ */
+function stations(pos: Float32Array, ns: number) {
+	const r2 = 6e-4 ** 2;
+	const out: number[] = [];
+	for (let i = 0; i < ns; i++) {
+		const x = pos[2 * i], y = pos[2 * i + 1];
+		for (let j = ns; j < pos.length / 2; j++) {
+			if ((pos[2 * j] - x) ** 2 + (pos[2 * j + 1] - y) ** 2 < r2) { out.push(i); break; }
+		}
+	}
+	return out.length > ns / 8 ? out : Array.from({ length: ns }, (_, i) => i);
 }
 
 /**
