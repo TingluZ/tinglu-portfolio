@@ -51,8 +51,10 @@ precision highp float;
 in float v_val;
 uniform sampler2D u_cmap;
 uniform vec2 u_range;
+uniform vec4 u_solid;
 out vec4 color;
 void main() {
+	if (u_solid.a > 0.0) { color = u_solid; return; }
 	float t = clamp((v_val - u_range.x) / (u_range.y - u_range.x), 0.0, 1.0);
 	color = texture(u_cmap, vec2(t, 0.5));
 }`;
@@ -72,6 +74,8 @@ export class FieldCanvas {
 	private posBuf: WebGLBuffer;
 	private valBuf: WebGLBuffer;
 	private idxBuf: WebGLBuffer;
+	private maskBuf: WebGLBuffer;
+	private maskCount = 0;
 	private textures: Record<ColormapName, WebGLTexture>;
 	private count = 0;
 	private cmap: ColormapName = 'field';
@@ -89,11 +93,12 @@ export class FieldCanvas {
 		gl.linkProgram(prog);
 		this.prog = prog;
 		this.loc = Object.fromEntries(
-			['u_center', 'u_scale', 'u_cmap', 'u_range'].map((n) => [n, gl.getUniformLocation(prog, n)]),
+			['u_center', 'u_scale', 'u_cmap', 'u_range', 'u_solid'].map((n) => [n, gl.getUniformLocation(prog, n)]),
 		);
 		this.posBuf = gl.createBuffer()!;
 		this.valBuf = gl.createBuffer()!;
 		this.idxBuf = gl.createBuffer()!;
+		this.maskBuf = gl.createBuffer()!;
 		this.textures = { field: this.texture('field'), error: this.texture('error') };
 	}
 
@@ -109,8 +114,12 @@ export class FieldCanvas {
 		return tex;
 	}
 
-	setMesh(pos: Float32Array, triangles: Uint32Array) {
+	/** `mask` is a triangle strip (x, y pairs) painted in the background colour over the field. */
+	setMesh(pos: Float32Array, triangles: Uint32Array, mask: Float32Array) {
 		const gl = this.gl;
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.maskBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, mask, gl.STATIC_DRAW);
+		this.maskCount = mask.length / 2;
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
 		gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
@@ -156,7 +165,17 @@ export class FieldCanvas {
 		gl.bindTexture(gl.TEXTURE_2D, this.textures[this.cmap]);
 		gl.uniform1i(this.loc.u_cmap, 0);
 
+		gl.uniform4f(this.loc.u_solid, 0, 0, 0, 0);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
 		gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_INT, 0);
+
+		if (this.maskCount) {
+			gl.disableVertexAttribArray(aVal);
+			gl.vertexAttrib1f(aVal, 0);
+			gl.bindBuffer(gl.ARRAY_BUFFER, this.maskBuf);
+			gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+			gl.uniform4f(this.loc.u_solid, background[0] / 255, background[1] / 255, background[2] / 255, 1);
+			gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.maskCount);
+		}
 	}
 }
