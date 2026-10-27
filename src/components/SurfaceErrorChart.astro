@@ -1,5 +1,5 @@
 ---
-// Relative L2 error on the AirfRANS test set, from the airfrans-fno-gnn README.
+// Surface RMSE / training std on the AirfRANS test set, from the airfrans-fno-gnn README.
 const rows = [
 	{ channel: 'vx', fno: 115.5, gnn: 19.0 },
 	{ channel: 'vy', fno: 66.7, gnn: 19.4 },
@@ -40,7 +40,7 @@ const ticks = [0, 25, 50, 75, 100];
 			);
 		})}
 	</svg>
-	<figcaption>Relative L2 error at the airfoil surface on the 200-case test set (lower is better).</figcaption>
+	<figcaption>Error at the airfoil surface on the 200-case test set: RMSE divided by each channel's typical scale (its training standard deviation), lower is better. CFD velocity is zero at the wall, so a relative error is undefined there.</figcaption>
 </figure>
 
 <style>

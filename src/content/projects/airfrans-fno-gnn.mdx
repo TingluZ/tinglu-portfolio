@@ -1,7 +1,7 @@
 ---
 title: 'FNO vs GNN: neural surrogates for airfoil CFD'
 summary: 'Predicting pressure and velocity fields around an airfoil from geometry and flow conditions, skipping the iterative CFD solve.'
-result: 'A 5k-parameter mesh GNN beats a 4.3M-parameter Fourier Neural Operator on every channel, cutting surface velocity error from 115% to 19%.'
+result: 'A 5k-parameter graph neural network beats a 4.3M-parameter Fourier Neural Operator on every channel, cutting surface velocity error from 115% to 19% of its typical scale.'
 date: 2026-10-01
 tags: ['PyTorch', 'Graph neural networks', 'Neural operators', 'CFD']
 featured: true
@@ -25,7 +25,7 @@ This project predicts the velocity, pressure and turbulent viscosity fields arou
 ## Two approaches
 
 - **Fourier Neural Operator (FNO):** interpolates the mesh onto a regular grid, learns in truncated Fourier space, then interpolates back to the mesh.
-- **Graph neural network (GNN):** an encode-process-decode network in the style of MeshGraphNet, working directly on the point cloud through a k-nearest-neighbour graph. No grid needed.
+- **Graph neural network (GNN):** a 4-layer GraphSAGE network working directly on the mesh points, each connected to its 8 nearest neighbours. No grid needed.
 
 ## Results
 
@@ -48,6 +48,8 @@ The FNO has to move data from mesh points to a grid and back. I measured the err
 | 256×128 | 32.3% | 100.7% |
 | 512×256 | 22.1% | 81.0% |
 
+Error here is mean absolute error divided by the field's standard deviation, a different measure from the chart above, so read the trend down the table rather than comparing values.
+
 Higher resolution helps the far field but barely moves the surface error. CFD meshes are densest near the wall, exactly where a regular grid throws the most information away. A density-weighted loss helped three of four channels but could not close the gap.
 
 ## What didn't work
@@ -57,8 +59,8 @@ I tried a no-slip penalty on the GNN, penalising predicted velocity at wall node
 ## Limitations and next steps
 
 - Single train/validation/test split, so no error bars.
-- The GNN uses a k-NN graph rather than the true mesh connectivity, and has no edge features.
-- Next: rebuild the graph from the mesh triangulation with edge features, try per-channel loss weighting, and test a geometry-aware FNO.
+- The GNN has no edge features. Building its graph from the real CFD mesh instead of nearest neighbours was 3 to 5 points worse over the whole field, but better at the wall for vy and nu_t.
+- Next: add edge features and a deeper MeshGraphNet-style model, try per-channel loss weighting, and test a geometry-aware FNO.
 
 ## Data and citation
 
