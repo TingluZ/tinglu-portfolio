@@ -165,7 +165,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 			for (const m of MODELS) {
 				const e = current.meta.error[m];
 				root.querySelector(`[data-err="${m}"]`)!.textContent =
-					`relative L2 error ${pct(e.all[channel])} overall · surface error ${pct(e.surface[channel])}`;
+					`relative L2 ${pct(e.all[channel])} overall · surface RMSE / std ${pct(e.surface[channel])}`;
 			}
 			drawSurfaceChart();
 			drawPickChart();
