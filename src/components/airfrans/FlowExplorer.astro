@@ -165,7 +165,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 			for (const m of MODELS) {
 				const e = current.meta.error[m];
 				root.querySelector(`[data-err="${m}"]`)!.textContent =
-					`relative L2 error ${pct(e.all[channel])} overall · ${pct(e.surface[channel])} at surface`;
+					`relative L2 error ${pct(e.all[channel])} overall · surface error ${pct(e.surface[channel])}`;
 			}
 			drawSurfaceChart();
 			drawPickChart();
@@ -251,10 +251,10 @@ const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/data/airfrans/`;
 
 		function drawPickChart() {
 			const name = index.channels[channel];
-			$('pickTitle').textContent = `Surface ${name} error (relative L2) for all ${index.cases.length} test cases`;
+			$('pickTitle').textContent = `Surface ${name} error (RMSE / training std) for all ${index.cases.length} test cases`;
 			const aoa = index.cases.map((c) => c.aoa_deg);
 			const errs = index.cases.flatMap((c) => MODELS.map((m) => c.error[m].surface[channel]));
-			const ax = axes([Math.min(...aoa), Math.max(...aoa)], [0, percentile(errs, 0.99)], 'angle of attack (°)', 'relative L2 error', (v) => `${Math.round(v * 100)}%`);
+			const ax = axes([Math.min(...aoa), Math.max(...aoa)], [0, percentile(errs, 0.99)], 'angle of attack (°)', 'RMSE / std', (v) => `${Math.round(v * 100)}%`);
 			const ymax = ax.ymax;
 			let s = ax.s;
 			for (const m of MODELS) {
